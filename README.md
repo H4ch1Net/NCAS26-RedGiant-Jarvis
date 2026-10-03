@@ -4,6 +4,10 @@ Autonomous rover software built for the NASA Community College Aerospace Scholar
 
 Team Red Giant X outperformed all other competing teams and earned Team MVP.
 
+![jarvis.py running in the simulator](docs/images/jarvis_run.gif)
+
+*`jarvis.py` running unchanged in the included [simulator](docs/simulator.md): six-lane sweep (blue), obstacle detour, and the reverse retrace home (orange).*
+
 ---
 
 ## Background
@@ -14,42 +18,61 @@ While other teams used simple straight-line programs requiring manual reposition
 
 ---
 
+## Documentation
+
+| | |
+|---|---|
+| 📖 [**How it works**](docs/how-it-works.md) | Gyro-held driving, two-pass turns, tape detection, path recording and retrace, with diagrams |
+| 🚀 [`jarvis.py` walkthrough](docs/jarvis.md) | The competition program, section by section |
+| 🔺 [`jarvis_ii.py` walkthrough](docs/jarvis_ii.md) | Triangle sweep variant and its geometry |
+| 🔌 [Hardware and setup](docs/hardware.md) | Port map, loading onto the EV3, pre-run checklist |
+| 🎛️ [Tuning and known issues](docs/tuning.md) | Every constant explained, plus improvement ideas |
+| 💃 [Demos](docs/demos.md) | Dance, donut and motor-test programs |
+| 🖥️ [Simulator](docs/simulator.md) | Run the real programs on a PC, no robot needed |
+
+---
+
 ## Hardware
+
+![EV3 port map](docs/images/hardware_ports.png)
 
 - **Platform:** LEGO MINDSTORMS EV3
 - **Runtime:** ev3dev + Pybricks MicroPython
 - **Sensors:**
-  - Gyroscope (S3) -- heading correction and turn accuracy
-  - Color sensor (S4) -- boundary detection and mineral identification
-  - Ultrasonic sensor -- obstacle detection and claw activation
+  - Gyroscope (S3): heading correction and turn accuracy
+  - Color sensor (S4): blue boundary-tape detection
 - **Actuators:**
   - Left drive motor (Port D)
   - Right drive motor (Port A)
   - Worm gear claw motor (Port C)
 
+An earlier version of this hardware list also included an ultrasonic sensor for obstacle detection and claw activation. The code in this repository doesn't read one; the obstacle detour is at a fixed position. See [hardware.md](docs/hardware.md#the-robot).
+
 ---
 
 ## Programs
 
-### `jarvis/jarvis.py` -- Main competition program
+### `jarvis/jarvis.py`: main competition program
+
+![jarvis.py path](docs/images/jarvis_path.png)
 
 Full-arena rectangular sweep using a predefined coordinate system in millimeters. Key features:
 
-- **Gyroscope-corrected straight driving** -- active heading correction in the control loop eliminates chassis steering drift
-- **Gyroscope-based turns** -- two-pass proportional control for accurate 90-degree turns
-- **Obstacle zone avoidance** -- automatic detour around the designated obstacle zone at lane 5 (tiles 3-4)
-- **Color edge detection** -- debounced blue-tape detection with automatic backoff and recovery
-- **Path recording and retrace** -- all moves are logged so the rover can autonomously return to the start
+- **Gyroscope-corrected straight driving:** a proportional heading hold in the control loop cancels out the chassis pulling to one side ([details](docs/how-it-works.md#1-gyro-held-straight-driving))
+- **Gyroscope-based turns:** two-pass proportional control for accurate 90-degree turns ([details](docs/how-it-works.md#2-gyro-turns))
+- **Obstacle zone avoidance:** automatic detour around the designated obstacle zone in lane 5, tiles 3–4 ([details](docs/jarvis.md#the-obstacle-detour))
+- **Color edge detection:** debounced blue-tape detection with automatic backoff and recovery ([details](docs/how-it-works.md#3-blue-tape-edge-detection))
+- **Path recording and retrace:** every move is logged so the rover can drive itself back to the start ([details](docs/how-it-works.md#4-path-recording-and-retrace-home))
 
-### `jarvis/jarvis_ii.py` -- Triangle sweep variant
+### `jarvis/jarvis_ii.py`: triangle sweep variant
 
-A sweep variant for triangular arena regions (x >= y diagonal). Computes lane lengths dynamically based on the diagonal boundary and navigates each lane accordingly, then retraces its path home.
+A sweep variant for triangular arena regions (x >= y diagonal). Works out each lane's length from the diagonal boundary, drives each lane, then retraces its path home. See [jarvis_ii.md](docs/jarvis_ii.md). That page also covers a sign issue on the westbound lanes that the simulator found.
 
 ---
 
 ## Demos
 
-These are standalone programs used for testing and exhibition. They are not part of the competition run.
+These are standalone programs used for testing and exhibition. They are not part of the competition run. Details in [docs/demos.md](docs/demos.md).
 
 | File | Description |
 |---|---|
@@ -67,9 +90,11 @@ These are standalone programs used for testing and exhibition. They are not part
 3. Copy the `jarvis/` folder to `/home/robot/` on the brick.
 4. Run `jarvis.py` from the EV3 menu or via SSH.
 
+A pre-run checklist is in [hardware.md](docs/hardware.md#before-every-run).
+
 ### Calibration
 
-Before a run, adjust these constants at the top of `jarvis.py` to match your build:
+Before a run, adjust these constants at the top of `jarvis.py` to match your build (full list in [tuning.md](docs/tuning.md)):
 
 | Constant | Default | Description |
 |---|---|---|
@@ -79,27 +104,51 @@ Before a run, adjust these constants at the top of `jarvis.py` to match your bui
 | `SHIFT_MM` | 300 | Lane width (mm) |
 | `LONG_RUN_MM` | 3600 | Arena length (mm) |
 
+### Try it without a robot
+
+```sh
+pip install -r sim/requirements.txt
+python3 sim/run.py jarvis/jarvis.py --plot jarvis.png
+python3 sim/make_figures.py        # regenerate every picture in docs/images/
+```
+
+See [docs/simulator.md](docs/simulator.md).
+
 ---
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    A[Start] --> B[Open claw]
+    B --> C["Gyro reset + settle (2 s)"]
+    C --> D{"For each lane 0..5"}
+    D -->|lane 5| E[Drive with obstacle detour]
+    D -->|other lanes| F[Drive straight with gyro hold]
+    E --> G["Color edge failsafe<br/>(blue tape → backoff + turn)"]
+    F --> G
+    G --> H{Last lane?}
+    H -->|no| I[U-turn + lane shift]
+    I --> D
+    H -->|yes| J["Retrace path home<br/>(reversed, inverted move log)"]
+    J --> K[Open claw at home]
+    K --> L[Beep]
 ```
-startup
-  |
-  +-- open claw
-  +-- gyro settle (2s)
-  |
-  for each lane (0..5):
-    |
-    +-- [lane 5] drive with obstacle detour
-    +-- [other]  drive straight with gyro hold
-    |
-    +-- color edge failsafe (blue tape -> backoff + turn)
-    +-- U-turn + lane shift
-  |
-  +-- retrace path home (reversed move log)
-  +-- open claw at home
-  +-- beep
+
+## Repository layout
+
+```
+jarvis/
+  jarvis.py        competition program (rectangle sweep + obstacle detour)
+  jarvis_ii.py     triangle sweep variant
+demos/             dance, donut and motor-test programs
+docs/              documentation (start at docs/README.md)
+  images/          figures, all generated by sim/make_figures.py
+sim/
+  pybricks/        fake Pybricks API for running programs on a PC
+  world.py         simulated clock and robot physics
+  run.py           run a program and print a summary or plot
+  make_figures.py  regenerate docs/images/
 ```
 
 ---
@@ -112,4 +161,4 @@ startup
 
 ---
 
-Built by **h4ch1net** -- Team Red Giant X, NASA NCAS 2026
+Built by **h4ch1net**, Team Red Giant X, NASA NCAS 2026
